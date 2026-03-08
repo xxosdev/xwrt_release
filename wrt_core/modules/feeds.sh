@@ -33,6 +33,9 @@ update_feeds() {
     fi
 
     ./scripts/feeds update -a
+    # 新增：强制修正 quickfile 的 Hash 值
+    # 找到 Makefile 并替换原来的 Hash 为日志中显示的正确 Hash
+    find "$BUILD_DIR/feeds/small8" -name "Makefile" -path "*/quickfile/*" | xargs -r sed -i 's/724eb26d55b4e3e19c3a888a1a72c53c60208198c482fa6def58a744269a07c4/9cbcb3063a2cc1856a40d4675a0e8a23bc33eea83d3cd010c1161149928aca58/g'
 }
 
 install_feeds() {
