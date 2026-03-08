@@ -87,16 +87,60 @@ jobs:
       - name: Build Firmware
         run: ./build.sh ${{ inputs.model }}
 
+        # --- 1. 增加内核模块打包 ---
+      - name: Collect and Package All IPKs
+        run: |
+          # 创建存放目录
+          mkdir -p ./firmware/packages
+          
+          # 核心：从 bin 目录搜集所有 ipk 文件（包含内核模块）
+          if [ -d "./action_build/bin" ]; then
+            find ./action_build/bin/ -name "*.ipk" -exec cp -f {} ./firmware/packages/ \;
+          fi
+          
+          # 检查是否抓到了文件
+          COUNT=$(ls -A ./firmware/packages | wc -l)
+          echo "Total IPKs collected: $COUNT"
+          
+          # 打包
+          cd ./firmware
+          if [ "$COUNT" -gt 0 ]; then
+            tar -zcvf All_Packages_${{ inputs.model }}_${{ env.BUILD_DATE }}.tar.gz packages
+          else
+            echo "Error: No IPK files found!"
+            touch NO_IPKS_FOUND.txt
+          fi
+          
+          # 清理临时文件夹，只保留压缩包
+          rm -rf packages
+
       - name: Get Kernel Verion
         run: |
           # 获取内核版本
-          echo "KVER=$(grep -oP "^kernel.*" ./firmware/*.manifest | grep -oP "[4-6]\.[0-9]{1,3}\.[0-9]{1,3}")" >> $GITHUB_ENV
+          #echo "KVER=$(grep -oP "^kernel.*" ./firmware/*.manifest | grep -oP "[4-6]\.[0-9]{1,3}\.[0-9]{1,3}")" >> $GITHUB_ENV
+          # 获取内核版本 (必须加 head -n 1)
+          echo "KVER=$(grep -oP "^kernel.*" ./firmware/*.manifest | head -n 1 | grep -oP "[4-6]\.[0-9]{1,3}\.[0-9]{1,3}")" >> $GITHUB_ENV
+
+        # --- 3. 重命名固件文件 ---
+      - name: Rename Firmware Files
+        run: |
+          cd ./firmware
+          # 遍历所有符合条件的固件文件
+          for file in *.bin *.img.gz *.itb *.ubi; do
+            if [ -f "$file" ]; then
+              # 在 -squashfs 之前插入 内核版本 和 日期
+              new_name=$(echo "$file" | sed "s/-squashfs/_${{ env.KVER }}_${{ env.BUILD_DATE }}-squashfs/")
+              mv "$file" "$new_name"
+              echo "Renamed: $file -> $new_name"
+            fi
+          done
 
       - name: Delete Old Cache
         run: |
           # 获取缓存列表并删除
           gh cache list --key ${{ matrix.os }}-${{ hashFiles('**/repo_flag') }}- --json key --jq '.[] | .key' | while read -r key; do
-            gh cache delete "$key"
+            #gh cache delete "$key"
+            gh cache delete "$key" || true
           done
           # 输出缓存状态
           echo "========cache status========"
@@ -126,7 +170,7 @@ jobs:
           echo "源码：${{ env.BUILD_SRC }}" >> release_body.txt
           echo "Kernel: ${{ env.KVER }}" >> release_body.txt
           echo "WIFI密码: 12345678" >> release_body.txt
-          echo "LAN地址: 192.168.1.1" >> release_body.txt
+          echo "LAN地址: 192.168.8.1" >> release_body.txt
           echo "插件：" >> release_body.txt
           echo "$(grep -oP "luci-app(-[a-zA-Z0-9]{1,}){1,}" ./firmware/*.manifest | awk -F":" '{print $NF}')"  >> release_body.txt
 
